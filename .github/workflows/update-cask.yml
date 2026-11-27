@@ -1,0 +1,68 @@
+name: Update Assetboard Cask
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check latest release and update Cask
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          cask_path = Path("Casks/assetboard.rb")
+          cask = cask_path.read_text(encoding="utf-8")
+
+          current_match = re.search(r'^\s*version\s+"([^"]+)"', cask, re.M)
+          assert current_match, "Could not find version in Casks/assetboard.rb"
+          current_version = current_match.group(1)
+
+          with urllib.request.urlopen("https://assetboard.app/downloads/latest.json", timeout=30) as resp:
+              manifest = json.loads(resp.read().decode("utf-8"))
+
+          latest_version = manifest["version"]
+          if latest_version == current_version:
+              print(f"Already up to date: {current_version}")
+              raise SystemExit(0)
+
+          dmg_url = f"https://assetboard.app/downloads/Assetboard-macOS-arm64-{latest_version}.dmg"
+          print(f"Fetching {dmg_url}")
+          h = hashlib.sha256()
+          with urllib.request.urlopen(dmg_url, timeout=120) as resp:
+              while chunk := resp.read(1024 * 1024):
+                  h.update(chunk)
+          sha256 = h.hexdigest()
+
+          updated = re.sub(r'^(\s*version\s+)"[^"]+"', rf'\1"{latest_version}"', cask, count=1, flags=re.M)
+          updated = re.sub(r'^(\s*sha256\s+)"[^"]+"', rf'\1"{sha256}"', updated, count=1, flags=re.M)
+          cask_path.write_text(updated, encoding="utf-8")
+          print(f"Updated Cask: {current_version} -> {latest_version} ({sha256})")
+          PY
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Casks/assetboard.rb; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          version="$(sed -nE 's/^[[:space:]]*version "([^"]+)"/\1/p' Casks/assetboard.rb)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/assetboard.rb
+          git commit -m "assetboard ${version}"
+          git push origin main
