@@ -16,7 +16,7 @@ cask "assetboard" do
 
   auto_updates true
   depends_on arch: :arm64
-  depends_on macos: ">= :sequoia"
+  depends_on macos: :sequoia
 
   app "Assetboard.app"
   binary "#{appdir}/Assetboard.app/Contents/MacOS/assetboard-cli"
